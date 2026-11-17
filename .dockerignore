@@ -1,0 +1,14 @@
+.git
+**/node_modules
+**/dist
+**/.vite
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/*.tsbuildinfo
+npm-cache
+upload
+**/secrets
+**/*.pem
+**/*.key

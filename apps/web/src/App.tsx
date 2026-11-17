@@ -106,7 +106,7 @@ export function App() {
 
   return (
     <main className="page">
-      <h1>Werewolf (prototype)</h1>
+      <h1>Skyjo (prototype)</h1>
       <p> simple PostgreSQL + Prisma setup</p>
 
       <section>

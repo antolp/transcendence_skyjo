@@ -16,7 +16,7 @@
     "dev": "npm run build:contracts && npm run db:generate && concurrently -k -n server,web \"npm run dev -w @ft/server\" \"npm run dev -w @ft/web\"",
     "build": "npm run build:contracts && npm run db:generate && npm run build -w @ft/server && npm run build -w @ft/web",
     "typecheck": "npm run build:contracts && npm run db:generate && npm run typecheck -w @ft/server && npm run typecheck -w @ft/web",
-    "db:up": "docker compose up -d --wait db",
+    "db:up": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --wait db",
     "db:down": "docker compose down",
     "db:generate": "npm run db:generate -w @ft/server",
     "db:migrate": "npm run db:migrate -w @ft/server",

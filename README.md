@@ -1,23 +1,26 @@
 now with registration (no account no password but the groundwork is here) and ORM 
 
-next : websockets, then actual server-side game loop
+next : websockets, then final contracts, then actual server-side game loop
 
 ## First-time setup
 
+Set POSTGRES_PASSWORD in .env and then :
 ```bash
 cp .env.example .env
-npm install
+docker compose up --build -d
+```
+Open http://localhost:8080. `docker compose down` to shut down the app.
+
+
+### Host-side dev
+
+Same thing with POSTGRES_PASSWORD, except the password placeholder must also be replaced in DATABASE_URL. 
+```
+npm ci
 npm run db:setup
 npm run dev
 ```
-
-Open http://127.0.0.1:5173. 
-
-### How the lobby works
-
-- `POST /api/lobby/register` creates a guest and returns a one-time random token.
-- `GET /api/lobby/state` requires `Authorization: Bearer <token>` and returns the roster.
-- The browser remembers the guest ID and token in local storage; PostgreSQL stores only the token's SHA-256 hash (usuful to expend to real account)
+db:up script also publish PostgreSQL, see docker-compose.dev.yml
 
 ### commands
 
