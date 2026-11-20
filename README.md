@@ -51,8 +51,8 @@ packages/contracts/       Shared TypeScript types and Zod request schemas
 ```
 # TO-DO (short-term)
 - the app is HTTP-only and binds to localhost for now
-- WebSockets
-- multiple lobbies
+- multiple lobbies, option to leave and other stuff
+- full contract for game.state
 
 ## Socket.IO
 

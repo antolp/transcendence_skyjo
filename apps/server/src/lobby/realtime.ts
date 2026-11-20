@@ -38,34 +38,53 @@ export function createLobbySocketServer(httpServer: HttpServer, service: Pick<Lo
     },
   });
 
-  //two nested callbacks
+  // Get the parameter types from our shared event contract (since no anonymous function)
+  type JoinArgs = Parameters<ClientToServerEvents[typeof EVENTS.LOBBY_JOIN]>;
   //socket is client's Socket object in the callback (=>) (called a closure)
   io.on("connection", (socket) => {
-    // Merely connecting does not grant access to protected lobby broadcasts
-    socket.on(EVENTS.LOBBY_JOIN, async (input, acknowledge) => {
+    // Handles a player's request to join the lobby
+    async function handleLobbyJoin(
+      input: JoinArgs[0],
+      acknowledge: JoinArgs[1]
+    ): Promise<void> {
       try {
         const { token } = joinLobbySchema.parse(input);
-        // Resolve the token against PostgreSQL before granting room membership.
+		// Resolve the token against PostgreSQL before granting room membership.
         const player = await service.authenticate(token);
         await socket.leave(LOBBY_SOCKET_ROOM);
         socket.data.lobbyPlayerId = player.id;
         await socket.join(LOBBY_SOCKET_ROOM);
-        if (typeof acknowledge === "function") acknowledge({ ok: true, data: { playerId: player.id } });
+        if (typeof acknowledge === "function") {
+          acknowledge({ ok: true, data: { playerId: player.id } });
+        }
       } catch (error) {
         delete socket.data.lobbyPlayerId;
         await socket.leave(LOBBY_SOCKET_ROOM);
-        if (typeof acknowledge !== "function") return;
+        if (typeof acknowledge !== "function")
+			return;
         if (error instanceof LobbyError) {
-          acknowledge({ ok: false, error: { code: error.code, message: error.message } });
+          acknowledge({
+            ok: false,
+            error: { code: error.code, message: error.message }
+          });
         } else if (error instanceof ZodError) {
-          acknowledge({ ok: false, error: { code: "INVALID_INPUT", message: "Invalid lobby join" } });
+          acknowledge({	
+            ok: false,
+            error: { code: "INVALID_INPUT", message: "Invalid lobby join" }
+          });
         } else {
           console.error("Lobby join failed", error);
-          acknowledge({ ok: false, error: { code: "INTERNAL_ERROR", message: "Lobby unavailable" } });
+          acknowledge({
+            ok: false,
+            error: { code: "INTERNAL_ERROR", message: "Lobby unavailable" }
+          });
         }
       }
-    });
+    }
+    // Register named function as the event handler
+    socket.on(EVENTS.LOBBY_JOIN, handleLobbyJoin);
   });
+
   return io;
 }
 
