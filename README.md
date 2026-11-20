@@ -1,10 +1,10 @@
 now with registration (no account no password but the groundwork is here) and ORM 
 
-next : websockets, then final contracts, then actual server-side game loop
+next : final contracts, then actual server-side game loop and lobby
 
 ## First-time setup
 
-Set POSTGRES_PASSWORD in .env and then :
+Set `POSTGRES_PASSWORD` in .env and then :
 ```bash
 cp .env.example .env
 docker compose up --build -d
@@ -14,7 +14,7 @@ Open http://localhost:8080. `docker compose down` to shut down the app.
 
 ### Host-side dev
 
-Same thing with POSTGRES_PASSWORD, except the password placeholder must also be replaced in DATABASE_URL. 
+Same thing with `POSTGRES_PASSWORD`, except the password placeholder must also be replaced in `DATABASE_URL`. 
 ```
 npm ci
 npm run db:setup
@@ -49,6 +49,20 @@ apps/server/src/lobby/    Database tracked registration and lobby snapshots
 apps/server/prisma/       Prisma schema, clean migration, idempotent  seed
 packages/contracts/       Shared TypeScript types and Zod request schemas
 ```
-# TO-DO
+# TO-DO (short-term)
 - the app is HTTP-only and binds to localhost for now
-- full deployment (database service only containerized)
+- WebSockets
+- multiple lobbies
+
+## Socket.IO
+
+The browser connects to /socket.io on the same origin as the page
+Nginx forwards HTTP polling and WebSocket upgrades to server:3001
+Vite provides the equivalent proxy for development and only builds static files for production
+
+The socket joins the lobby after the server checks its guest token
+Registration and kicks broadcast a revision notice, then the browser fetches the lobby roster through the authenticated HTTP API
+After reconnecting, the browser joins again and fetches the current roster
+
+ALLOWED_ORIGINS in .env is a comma-separated list of allowed browser origins for socket.io server (makes Vite work)
+Use the exact scheme, hostname and port of the frontend 

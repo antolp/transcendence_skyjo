@@ -21,6 +21,7 @@ services:
       target: server
     restart: unless-stopped
     environment:
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 3001
       DATABASE_URL: postgresql://werewolf:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (URL-safe characters only)}@db:5432/werewolf_dev?schema=public

@@ -1,8 +1,15 @@
 import express, { type ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
-import { registerLobbySchema, type ApiError, type HealthResponse } from "@ft/contracts";
+import { registerLobbySchema, kickPlayerSchema, type ApiError, type HealthResponse } from "@ft/contracts";
 import { LobbyError } from "./lobby/errors.js";
 import type { LobbyService } from "./lobby/service.js";
+
+// Express doesn't import socket.io directly, its caller injects notif functions
+// 
+export type LobbyNotifications = {
+  changed(revision: number): void;
+  kicked(playerId: string): void;
+};
 
 // Stable error format so the browser can display friendly messages.
 function apiError(code: string, message: string): ApiError {
@@ -16,11 +23,16 @@ function bearerToken(header: string | undefined): string {
   return token;
 }
 
-// The service handles business logic; Express only validates HTTP input and output.
-export function createApp(lobby: LobbyService) {
+// Express only validates HTTP input and output.
+export function createApp(lobby: LobbyService, notify: LobbyNotifications) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "16kb" }));
+
+  function changed(revision: number): void {
+    try { notify.changed(revision); }
+    catch (error) { console.error("Lobby notification failed", error); }
+  }
 
   app.get("/api/health", (_request, response) => {
     const health: HealthResponse = { status: "ok", service: "werewolf-server" };
@@ -31,11 +43,23 @@ export function createApp(lobby: LobbyService) {
     const { username } = registerLobbySchema.parse(request.body);
     const credentials = await lobby.register(username);
     response.set("Cache-Control", "no-store").status(201).json(credentials);
+    changed(credentials.revision);
   });
 
   app.get("/api/lobby/state", async (request, response) => {
     const snapshot = await lobby.getState(bearerToken(request.header("Authorization")));
     response.set("Cache-Control", "no-store").json(snapshot);
+  });
+
+  app.post("/api/lobby/kick", async (request, response) => {
+    const token = bearerToken(request.header("Authorization"));
+    const { playerId } = kickPlayerSchema.parse(request.body);
+    const result = await lobby.kick(token, playerId);
+    response.set("Cache-Control", "no-store").json(result);
+
+    try { notify.kicked(result.playerId); }
+    catch (error) { console.error("Kick notification failed", error); }
+    changed(result.revision);
   });
 
   app.use((_request, response) => {

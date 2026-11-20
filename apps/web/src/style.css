@@ -23,6 +23,8 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 .players { padding-left: 24px; }
 .players li { margin-bottom: 8px; }
+.players li button { margin-left: 12px; }
+.connection { font-size: 13px; color: #555; }
 .hint { color: #666; font-size: 13px; }
 .error { color: #a00; border: 1px solid #d88; background: #fff0f0; padding: 8px; }
 

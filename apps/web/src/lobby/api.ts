@@ -36,3 +36,14 @@ export async function fetchLobbyState(token: string): Promise<LobbySnapshot> {
   });
   return asJson<LobbySnapshot>(response);
 }
+
+// Only the admin can use this route, Express verifies token server-side
+export async function kickPlayer(token: string, playerId: string): Promise<void> {
+  const response = await fetch("/api/lobby/kick", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ playerId }),
+    cache: "no-store",
+  });
+  await asJson<{ playerId: string; revision: number }>(response);
+}

@@ -1,7 +1,8 @@
 // Public entry point: applications import shared HTTP types from @ft/contracts.
 export * from "./lobby.js";
+export * from "./events.js";
 
-// The health endpoint from Commit 1 stays available as a shared type.
+//ljophik;' faetsdrwastnhgklebd ;satglkndbhegtsdaelkjbmklbjtyheg
 export type HealthResponse = {
   status: "ok";
   service: "werewolf-server";

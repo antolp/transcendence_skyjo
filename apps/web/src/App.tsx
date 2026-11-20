@@ -1,10 +1,16 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { usernameSchema, type LobbySnapshot } from "@ft/contracts";
-import { fetchLobbyState, LobbyApiError, register } from "./lobby/api";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { io, type Socket } from "socket.io-client";
+import {
+  EVENTS, usernameSchema,
+  type ClientToServerEvents, type ServerToClientEvents, type LobbySnapshot,
+} from "@ft/contracts";
+import { fetchLobbyState, kickPlayer, LobbyApiError, register } from "./lobby/api";
 
 //Browser storage holds the raw token, while PostgreSQL stores only its hash
 //Tabs in the same browser profile therefore represent the same guest
 type GuestIdentity = { playerId: string; token: string };
+type LobbySocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+type ConnectionStatus = "disconnected" | "joining" | "joined";
 const STORAGE_KEY = "werewolf:guest:demo";
 
 function loadIdentity(): GuestIdentity | null {
@@ -39,32 +45,100 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [kicking, setKicking] = useState<string | null>(null);
+  const [connection, setConnection] = useState<ConnectionStatus>("disconnected");
+  // The current socket effect owns refresh; button handlers call it through this ref.
+  const refreshRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    if (!identity) { setSnapshot(null); return; }
-    let cancelled = false;
-    setSnapshot(null);
+    if (!identity) {
+      setSnapshot(null);
+      setConnection("disconnected");
+      refreshRef.current = () => {};
+      return;
+    }
 
-    // Fetch once on mount/registration. Commit 4 will refresh on Socket.IO events.
-    void fetchLobbyState(identity.token).then((state) => {
-      if (!cancelled) setSnapshot(state);
-    }).catch((cause: unknown) => {
-      if (cancelled) return;
-      if (cause instanceof LobbyApiError && cause.code === "UNAUTHORIZED") {
-        storeIdentity(null);
-        setIdentity(null);
-        setError("Your guest session is no longer valid. Please register again.");
-      } else {
-        setError(messageFor(cause));
-      }
+    let disposed = false;
+    let requestNumber = 0;
+    const { token, playerId } = identity;
+
+    function forgetIdentity(message: string) {
+      if (disposed) return;
+      storeIdentity(null);
+      setIdentity(null);
+      setSnapshot(null);
+      setError(message);
+    }
+
+    function refresh() {
+      // If two requests overlap, ignore the response of the older request.
+      // This prevents a slow HTTP response from rolling the lobby back.
+      const currentRequest = ++requestNumber;
+      setRefreshing(true);
+      void fetchLobbyState(token).then((state) => {
+        if (disposed || currentRequest !== requestNumber) return;
+        if (state.you.id !== playerId) {
+          forgetIdentity("Your saved identity does not match the server. Register again.");
+          return;
+        }
+        setSnapshot(state);
+        setError(null);
+      }).catch((cause: unknown) => {
+        if (disposed || currentRequest !== requestNumber) return;
+        if (cause instanceof LobbyApiError && cause.code === "UNAUTHORIZED") {
+          forgetIdentity("Your guest identity is no longer registered. Please join again.");
+        } else {
+          setError(`Cannot refresh lobby: ${messageFor(cause)}`);
+        }
+      }).finally(() => {
+        if (!disposed && currentRequest === requestNumber) setRefreshing(false);
+      });
+    }
+    refreshRef.current = refresh;
+
+    // The transport reconnects automatically, Every new connection must join the authenticated lobby again
+    const socket: LobbySocket = io({ path: "/socket.io", autoConnect: false });
+    socket.on("connect", () => {
+      if (disposed) return;
+      setConnection("joining");
+      socket.emit(EVENTS.LOBBY_JOIN, { token }, (ack) => {
+        if (disposed) return;
+        if (!ack.ok) {
+          setConnection("disconnected");
+          if (ack.error.code === "UNAUTHORIZED") {
+            forgetIdentity("Your guest identity has expired. Please join again.");
+          } else {
+            setError(ack.error.message);
+          }
+          return;
+        }
+        setConnection("joined");
+        refresh(); // Catch up after being offline, even if events were missed.
+      });
     });
-    return () => { cancelled = true; };
+    socket.on("disconnect", () => { if (!disposed) setConnection("disconnected"); });
+    socket.on("connect_error", () => { if (!disposed) setConnection("disconnected"); });
+    // WebSocket messages carry only a revision notice; HTTP fetches the roster.
+    socket.on(EVENTS.LOBBY_CHANGED, () => { if (!disposed) refresh(); });
+    socket.on(EVENTS.LOBBY_KICKED, () => {
+      forgetIdentity("The administrator removed you from the lobby.");
+    });
+    socket.connect();
+    refresh(); // Remain usable even if Socket.io Cannot connect right now.
+
+    return () => {
+      disposed = true;
+      requestNumber++;
+      refreshRef.current = () => {};
+      socket.removeAllListeners();
+      socket.disconnect();
+    };
   }, [identity]);
 
   async function onRegister(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    //share the same runtime validation rules as Express, before making a request
+    // Share the same runtime validation rules as Express, before making a request
     const checked = usernameSchema.safeParse(username);
     if (!checked.success) {
       setError(checked.error.issues[0]?.message ?? "Invalid username");
@@ -84,30 +158,26 @@ export function App() {
     }
   }
 
-  async function refresh() {
-    if (!identity) return;
-    setRefreshing(true);
+  async function onKick(playerId: string) {
+    if (!identity || kicking) return;
+    setKicking(playerId);
     setError(null);
     try {
-      setSnapshot(await fetchLobbyState(identity.token));
+      // Frontend button is just UX, the service performs the real permission check.
+      await kickPlayer(identity.token, playerId);
+      refreshRef.current();
     } catch (cause) {
-      if (cause instanceof LobbyApiError && cause.code === "UNAUTHORIZED") {
-        storeIdentity(null);
-        setIdentity(null);
-        setSnapshot(null);
-        setError("Your guest session is no longer valid. Please register again.");
-      } else {
-        setError(messageFor(cause));
-      }
+      setError(`Kick failed: ${messageFor(cause)}`);
     } finally {
-      setRefreshing(false);
+      setKicking(null);
     }
   }
+
 
   return (
     <main className="page">
       <h1>Skyjo (prototype)</h1>
-      <p> simple PostgreSQL + Prisma setup</p>
+      <p> no cards for now </p>
 
       <section>
         <h2>Lobby</h2>
@@ -122,20 +192,30 @@ export function App() {
           <>
             <p>Signed in as <strong>{snapshot?.you.username ?? "guest"}</strong>
               {snapshot?.you.isAdmin ? " (admin)" : ""}.</p>
-            <button type="button" onClick={() => { void refresh(); }} disabled={refreshing}>
+            <p className="connection" role="status">Live connection: {connection}</p>
+            <button type="button" onClick={() => refreshRef.current()} disabled={refreshing}>
               {refreshing ? "Refreshing…" : "Refresh players"}
             </button>
-            <p className="hint">Updates are manual for now, Websockets in the next commit</p>
+            <p className="hint">Player lists update automatically while connected, this button is useless</p>
             {snapshot ? (
               <>
                 <p>{snapshot.players.length} registered player(s) · Revision {snapshot.revision}</p>
                 <ol className="players">
                   {snapshot.players.map((player) => (
-                    <li key={player.id}>{player.username}{player.isAdmin ? " (admin)" : ""}</li>
+                    <li key={player.id}>
+                      <span>{player.username}{player.isAdmin ? " (admin)" : ""}
+                        {player.id === identity.playerId ? " (you)" : ""}</span>
+                      {snapshot.you.isAdmin && player.id !== identity.playerId && (
+                        <button type="button" disabled={kicking !== null}
+                          onClick={() => { void onKick(player.id); }}>
+                          {kicking === player.id ? "Kicking…" : "Kick"}
+                        </button>
+                      )}
+                    </li>
                   ))}
                 </ol>
               </>
-            ) : <p role="status">Loading lobby…</p>}
+            ) : <p role="status">Loading lobby… (what's happening here ?)</p>}
           </>
         )}
         {error && <p role="alert" className="error">{error}</p>}

@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
-  LOBBY_ROOM_ID, lobbyTokenSchema, usernameSchema,
+  LOBBY_ROOM_ID, lobbyTokenSchema, playerIdSchema, usernameSchema,
   type LobbyCredentials, type LobbySnapshot,
 } from "@ft/contracts";
 import { LobbyError } from "./errors.js";
@@ -17,7 +17,18 @@ const txOptions = { maxWait: 15_000, timeout: 20_000 };
 //    await lobby.register("Alice"); etc
 //All database access for the lobby lives here, not in the Express route handlers
 export function createLobbyService(prisma: PrismaClient) {
+  // WebSocket joins use the same hash-based guest credentials as the HTTP API.
+  async function authenticate(token: string): Promise<{ id: string }> {
+    if (!lobbyTokenSchema.safeParse(token).success) throw unauthorized();
+    const player = await prisma.player.findUnique({
+      where: { tokenHash: hashToken(token) },
+      select: { id: true, roomId: true },
+    });
+    if (!player || player.roomId !== LOBBY_ROOM_ID) throw unauthorized();
+    return { id: player.id };
+  }
   return {
+	authenticate,
     async register(rawUsername: string): Promise<LobbyCredentials> {
       const username = usernameSchema.parse(rawUsername);
       const playerId = randomUUID();
@@ -62,6 +73,40 @@ export function createLobbyService(prisma: PrismaClient) {
         }
         throw error;
       }
+    },
+
+    // Permission checks and deletion share one transaction. On failure, even
+    // the revision increment is rolled back; no notification should be sent.
+    async kick(token: string, rawPlayerId: string): Promise<{ playerId: string; revision: number }> {
+      const playerId = playerIdSchema.parse(rawPlayerId);
+      if (!lobbyTokenSchema.safeParse(token).success) throw unauthorized();
+
+      return prisma.$transaction(async (tx) => {
+        // The room-row write serializes kicks with concurrent registrations.
+        const room = await tx.room.update({
+          where: { id: LOBBY_ROOM_ID },
+          data: { revision: { increment: 1 } },
+          select: { revision: true, adminPlayerId: true },
+        });
+        const caller = await tx.player.findUnique({
+          where: { tokenHash: hashToken(token) },
+          select: { id: true, roomId: true },
+        });
+        if (!caller || caller.roomId !== LOBBY_ROOM_ID) throw unauthorized();
+        if (caller.id !== room.adminPlayerId) {
+          throw new LobbyError("FORBIDDEN", "Only the admin can kick players", 403);
+        }
+        if (caller.id === playerId) {
+          throw new LobbyError("CANNOT_KICK_SELF", "Admin cannot kick themselves", 409);
+        }
+        const removed = await tx.player.deleteMany({
+          where: { id: playerId, roomId: LOBBY_ROOM_ID },
+        });
+        if (removed.count === 0) {
+          throw new LobbyError("PLAYER_NOT_FOUND", "Player is not in this lobby", 404);
+        }
+        return { playerId, revision: room.revision };
+      }, txOptions);
     },
 
     async getState(token: string): Promise<LobbySnapshot> {

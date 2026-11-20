@@ -1,11 +1,14 @@
+import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
 import dotenv from "dotenv";
 import { z } from "zod";
+import { EVENTS } from "@ft/contracts";
 import { createApp } from "./app.js";
 import { createLobbyService } from "./lobby/service.js";
+import { createLobbySocketServer, LOBBY_SOCKET_ROOM, notifyKickedPlayer } from "./lobby/realtime.js";
 
-// Both src/index.ts and dist/index.js are three directories below the root.
+// Both src/index.ts and dist/index.js live three directories below the project root.
 dotenv.config({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
 
 const environment = z.object({
@@ -13,7 +16,6 @@ const environment = z.object({
   SERVER_PORT: z.coerce.number().int().min(1).max(65_535).default(3001),
   DATABASE_URL: z.string().url(),
 }).safeParse(process.env);
-
 if (!environment.success) {
   console.error("Invalid server configuration:", environment.error.flatten().fieldErrors);
   process.exit(1);
@@ -21,9 +23,7 @@ if (!environment.success) {
 
 const { SERVER_HOST: host, SERVER_PORT: port } = environment.data;
 const prisma = new PrismaClient();
-
 try {
-  // Fail at startup rather than showing users a working HTTP server with no DB.
   await prisma.$connect();
 } catch (error) {
   console.error("Cannot connect to PostgreSQL. Run npm run db:setup first.", error);
@@ -32,16 +32,27 @@ try {
 }
 
 const lobby = createLobbyService(prisma);
-const server = createApp(lobby).listen(port, host, () => {
+// Express handles HTTP API requests. socket.io attaches to the SAME HTTP server (see realtime.ts)
+// The callbacks don't fire until a request finishes its database transaction.
+const httpServer = createServer(createApp(lobby, {
+  changed: (revision) => io.to(LOBBY_SOCKET_ROOM).emit(EVENTS.LOBBY_CHANGED, { revision }),
+  kicked: (playerId) => notifyKickedPlayer(io, playerId),
+}));
+// The socket server uses the lobby's auth method before joining the event room.
+const io = createLobbySocketServer(httpServer, lobby);
+httpServer.listen(port, host, () => {
   console.info(`Werewolf prototype listening on http://${host}:${port}`);
 });
 
-// Stop accepting requests and release the database connection on Ctrl+C.
+// A single close routine prevents overlapping shutdowns from SIGINT/SIGTERM.
 let closing = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     if (closing) return;
     closing = true;
-    server.close(() => { void prisma.$disconnect(); });
+    io.close(async () => {
+      await prisma.$disconnect();
+      process.exit();
+    });
   });
 }
