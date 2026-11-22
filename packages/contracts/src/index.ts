@@ -6,5 +6,5 @@ export * from "./skyjo.js";
 //ljophik;' faetsdrwastnhgklebd ;satglkndbhegtsdaelkjbmklbjtyheg
 export type HealthResponse = {
   status: "ok";
-  service: "werewolf-server";
+  service: "skyjo-server";
 };

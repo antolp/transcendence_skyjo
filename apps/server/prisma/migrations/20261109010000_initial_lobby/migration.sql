@@ -1,4 +1,4 @@
--- First Wwerewolf migration, only room and guest identities
+-- First Wskyjo migration, only room and guest identities
 CREATE TABLE "Room" (
     "id" TEXT NOT NULL,
     "revision" INTEGER NOT NULL DEFAULT 0,

@@ -11,7 +11,7 @@ import { fetchLobbyState, kickPlayer, LobbyApiError, register } from "./lobby/ap
 type GuestIdentity = { playerId: string; token: string };
 type LobbySocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 type ConnectionStatus = "disconnected" | "joining" | "joined";
-const STORAGE_KEY = "werewolf:guest:demo";
+const STORAGE_KEY = "skyjo:guest:demo";
 
 function loadIdentity(): GuestIdentity | null {
   try {

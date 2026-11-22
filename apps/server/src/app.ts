@@ -35,7 +35,7 @@ export function createApp(lobby: LobbyService, notify: LobbyNotifications) {
   }
 
   app.get("/api/health", (_request, response) => {
-    const health: HealthResponse = { status: "ok", service: "werewolf-server" };
+    const health: HealthResponse = { status: "ok", service: "skyjo-server" };
     response.json(health);
   });
 

@@ -9,7 +9,7 @@ import {
 import { LobbyError } from "./errors.js";
 import type { LobbyService } from "./service.js";
 
-export const LOBBY_SOCKET_ROOM = "werewolf:lobby";
+export const LOBBY_SOCKET_ROOM = "skyjo:lobby";
 type LobbyIo = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
 //Socket.IO carries only revision notices, never secret roles or votes.

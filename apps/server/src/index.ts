@@ -41,7 +41,7 @@ const httpServer = createServer(createApp(lobby, {
 // The socket server uses the lobby's auth method before joining the event room.
 const io = createLobbySocketServer(httpServer, lobby);
 httpServer.listen(port, host, () => {
-  console.info(`Werewolf prototype listening on http://${host}:${port}`);
+  console.info(`skyjo prototype listening on http://${host}:${port}`);
 });
 
 // A single close routine prevents overlapping shutdowns from SIGINT/SIGTERM.
