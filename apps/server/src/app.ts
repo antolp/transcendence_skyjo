@@ -1,6 +1,7 @@
 import express, { type ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
 import { registerLobbySchema, kickPlayerSchema, type ApiError, type HealthResponse } from "@ft/contracts";
+import type { StartMatch } from "./game/types.js";
 import { LobbyError } from "./lobby/errors.js";
 import type { LobbyService } from "./lobby/service.js";
 
@@ -24,7 +25,7 @@ function bearerToken(header: string | undefined): string {
 }
 
 // Express only validates HTTP input and output.
-export function createApp(lobby: LobbyService, notify: LobbyNotifications) {
+export function createApp(lobby: LobbyService, notify: LobbyNotifications, startMatch: StartMatch) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "16kb" }));
@@ -49,6 +50,14 @@ export function createApp(lobby: LobbyService, notify: LobbyNotifications) {
   app.get("/api/lobby/state", async (request, response) => {
     const snapshot = await lobby.getState(bearerToken(request.header("Authorization")));
     response.set("Cache-Control", "no-store").json(snapshot);
+  });
+
+  app.post("/api/lobby/start", async (request, response) => {
+    const state = await lobby.getState(bearerToken(request.header("Authorization")));
+    if (!state.you.isAdmin) throw new LobbyError("FORBIDDEN", "Only the admin can start the match.", 403);
+    const seats = state.players.slice(0, 2).map(({ id, username }) => ({ playerId: id, username }));
+    const result = await startMatch({ roomId: state.roomId, seats });
+    response.set("Cache-Control", "no-store").json(result);
   });
 
   app.post("/api/lobby/kick", async (request, response) => {

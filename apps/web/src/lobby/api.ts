@@ -1,4 +1,4 @@
-import type { ApiError, LobbyCredentials, LobbySnapshot } from "@ft/contracts";
+import type { ApiError, LobbyCredentials, LobbySnapshot, StartMatchResult } from "@ft/contracts";
 
 // Browser-facing API errors preserve the server's machine-readable error code.
 export class LobbyApiError extends Error {
@@ -35,6 +35,15 @@ export async function fetchLobbyState(token: string): Promise<LobbySnapshot> {
     cache: "no-store",
   });
   return asJson<LobbySnapshot>(response);
+}
+
+export async function startSampleMatch(token: string): Promise<StartMatchResult> {
+  const response = await fetch("/api/lobby/start", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  return asJson<StartMatchResult>(response);
 }
 
 // Only the admin can use this route, Express verifies token server-side

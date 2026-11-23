@@ -5,8 +5,9 @@ import dotenv from "dotenv";
 import { z } from "zod";
 import { EVENTS } from "@ft/contracts";
 import { createApp } from "./app.js";
+import { createSampleMatchService } from "./game/sampleMatch.js";
 import { createLobbyService } from "./lobby/service.js";
-import { createLobbySocketServer, LOBBY_SOCKET_ROOM, notifyKickedPlayer } from "./lobby/realtime.js";
+import { createLobbySocketServer, LOBBY_SOCKET_ROOM, notifyKickedPlayer, notifyMatchStarted } from "./lobby/realtime.js";
 
 // Both src/index.ts and dist/index.js live three directories below the project root.
 dotenv.config({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
@@ -32,14 +33,15 @@ try {
 }
 
 const lobby = createLobbyService(prisma);
+const matches = createSampleMatchService((match) => notifyMatchStarted(io, match));
 // Express handles HTTP API requests. socket.io attaches to the SAME HTTP server (see realtime.ts)
 // The callbacks don't fire until a request finishes its database transaction.
 const httpServer = createServer(createApp(lobby, {
   changed: (revision) => io.to(LOBBY_SOCKET_ROOM).emit(EVENTS.LOBBY_CHANGED, { revision }),
   kicked: (playerId) => notifyKickedPlayer(io, playerId),
-}));
+}, matches.startMatch));
 // The socket server uses the lobby's auth method before joining the event room.
-const io = createLobbySocketServer(httpServer, lobby);
+const io = createLobbySocketServer(httpServer, lobby, matches);
 httpServer.listen(port, host, () => {
   console.info(`skyjo prototype listening on http://${host}:${port}`);
 });

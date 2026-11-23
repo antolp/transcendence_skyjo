@@ -22,9 +22,9 @@ export type GameCommandAck = Acknowledgement<{ revision: number }>;
 export interface ClientToServerEvents {
   "lobby:join": (
     command: { token: string },
-    acknowledge: (result: Acknowledgement<{ playerId: string }>) => void,
+    acknowledge: (result: Acknowledgement<{ playerId: string; activeMatchId: string | null }>) => void,
   ) => void;
-  // After lobby:join, resolve socket.data.lobbyPlayerId against the match roster.
+  // Resolve the viewer from the authenticated lobby socket.
   [EVENTS.GAME_SUBSCRIBE]: (
     request: GameSubscribeRequest,
     acknowledge: (result: GameSubscribeAck) => void,
@@ -39,7 +39,7 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   "lobby:changed": (event: LobbyChangedEvent) => void;
   "lobby:kicked": () => void;
-  // Send the full personalized snapshot to the viewing seat's sockets.
+  // Each authenticated viewer receives their own snapshot.
   [EVENTS.GAME_SNAPSHOT]: (snapshot: SkyjoSnapshot) => void;
 }
 

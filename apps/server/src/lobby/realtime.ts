@@ -2,19 +2,22 @@ import type { Server as HttpServer } from "node:http";
 import { Server } from "socket.io";
 import { ZodError } from "zod";
 import {
-  EVENTS, joinLobbySchema,
+  EVENTS, gameSubscribeSchema, joinLobbySchema,
   type ClientToServerEvents, type ServerToClientEvents,
   type InterServerEvents, type SocketData,
 } from "@ft/contracts";
+import type { ActiveMatch, MatchService } from "../game/types.js";
 import { LobbyError } from "./errors.js";
 import type { LobbyService } from "./service.js";
 
 export const LOBBY_SOCKET_ROOM = "skyjo:lobby";
 type LobbyIo = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
-//Socket.IO carries only revision notices, never secret roles or votes.
-//Pick typescript 
-export function createLobbySocketServer(httpServer: HttpServer, service: Pick<LobbyService, "authenticate">): LobbyIo {
+export function createLobbySocketServer(
+  httpServer: HttpServer,
+  service: Pick<LobbyService, "authenticate">,
+  matches: Pick<MatchService, "activeMatch">,
+): LobbyIo {
   const allowedOrigins = new Set(
     (process.env.ALLOWED_ORIGINS ?? "http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3001,http://127.0.0.1:3001")
       .split(",").map((origin) => origin.trim()).filter(Boolean),
@@ -55,7 +58,10 @@ export function createLobbySocketServer(httpServer: HttpServer, service: Pick<Lo
         socket.data.lobbyPlayerId = player.id;
         await socket.join(LOBBY_SOCKET_ROOM);
         if (typeof acknowledge === "function") {
-          acknowledge({ ok: true, data: { playerId: player.id } });
+          acknowledge({
+            ok: true,
+            data: { playerId: player.id, activeMatchId: matches.activeMatch?.matchId ?? null },
+          });
         }
       } catch (error) {
         delete socket.data.lobbyPlayerId;
@@ -83,9 +89,34 @@ export function createLobbySocketServer(httpServer: HttpServer, service: Pick<Lo
     }
     // Register named function as the event handler
     socket.on(EVENTS.LOBBY_JOIN, handleLobbyJoin);
+    socket.on(EVENTS.GAME_SUBSCRIBE, (input, acknowledge) => {
+      if (typeof acknowledge !== "function") return;
+      const playerId = socket.data.lobbyPlayerId;
+      if (!playerId || !socket.rooms.has(LOBBY_SOCKET_ROOM)) {
+        return acknowledge({ ok: false, error: { code: "UNAUTHORIZED", message: "Join the lobby first." } });
+      }
+      const request = gameSubscribeSchema.safeParse(input);
+      if (!request.success) {
+        return acknowledge({ ok: false, error: { code: "INVALID_INPUT", message: "Invalid match subscription." } });
+      }
+      const match = matches.activeMatch;
+      if (!match || match.matchId !== request.data.matchId) {
+        return acknowledge({ ok: false, error: { code: "MATCH_NOT_FOUND", message: "This match is unavailable." } });
+      }
+      acknowledge({ ok: true, data: match.snapshotFor(playerId) });
+    });
   });
 
   return io;
+}
+
+export function notifyMatchStarted(io: LobbyIo, match: ActiveMatch): void {
+  for (const socket of io.sockets.sockets.values()) {
+    const playerId = socket.data.lobbyPlayerId;
+    if (playerId && socket.rooms.has(LOBBY_SOCKET_ROOM)) {
+      socket.emit(EVENTS.GAME_SNAPSHOT, match.snapshotFor(playerId));
+    }
+  }
 }
 
 /** Revoke sockets after the database commits a kick. */

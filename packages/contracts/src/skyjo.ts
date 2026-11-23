@@ -51,8 +51,11 @@ export type SkyjoSnapshot = {
   roomId: string;
   revision: number;
   public: SkyjoPublicState;
-  you: SkyjoSeatState;
+  // Spectators receive the public board and a null viewer state.
+  you: SkyjoSeatState | null;
 };
+
+export type StartMatchResult = { matchId: string };
 
 const slotIndexSchema = z.number().int().nonnegative()
   .max(SKYJO_BOARD_ROWS * SKYJO_BOARD_COLUMNS - 1);

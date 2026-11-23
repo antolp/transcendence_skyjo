@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./samples/skyjo": {
+      "types": "./dist/samples/skyjo.d.ts",
+      "import": "./dist/samples/skyjo.js"
     }
   },
   "files": [

@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { io, type Socket } from "socket.io-client";
 import {
   EVENTS, usernameSchema,
-  type ClientToServerEvents, type ServerToClientEvents, type LobbySnapshot,
+  type ClientToServerEvents, type ServerToClientEvents, type LobbySnapshot, type SkyjoSnapshot,
 } from "@ft/contracts";
-import { fetchLobbyState, kickPlayer, LobbyApiError, register } from "./lobby/api";
+import { MatchView } from "./game/MatchView";
+import { fetchLobbyState, kickPlayer, LobbyApiError, register, startSampleMatch } from "./lobby/api";
 
 //Browser storage holds the raw token, while PostgreSQL stores only its hash
 //Tabs in the same browser profile therefore represent the same guest
@@ -42,6 +43,9 @@ export function App() {
   const [identity, setIdentity] = useState<GuestIdentity | null>(loadIdentity);
   const [username, setUsername] = useState("");
   const [snapshot, setSnapshot] = useState<LobbySnapshot | null>(null);
+  const [gameSnapshot, setGameSnapshot] = useState<SkyjoSnapshot | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [matchError, setMatchError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,6 +55,8 @@ export function App() {
   const refreshRef = useRef<() => void>(() => {});
 
   useEffect(() => {
+    setGameSnapshot(null);
+    setMatchError(null);
     if (!identity) {
       setSnapshot(null);
       setConnection("disconnected");
@@ -64,9 +70,11 @@ export function App() {
 
     function forgetIdentity(message: string) {
       if (disposed) return;
+      disposed = true;
       storeIdentity(null);
       setIdentity(null);
       setSnapshot(null);
+      setGameSnapshot(null);
       setError(message);
     }
 
@@ -98,6 +106,15 @@ export function App() {
 
     // The transport reconnects automatically, Every new connection must join the authenticated lobby again
     const socket: LobbySocket = io({ path: "/socket.io", autoConnect: false });
+    function receiveSnapshot(next: SkyjoSnapshot) {
+      if (disposed) return;
+      setGameSnapshot((previous) =>
+        previous?.matchId === next.matchId && previous.revision > next.revision ? previous : next
+      );
+      setMatchError(null);
+    }
+
+    socket.on(EVENTS.GAME_SNAPSHOT, receiveSnapshot);
     socket.on("connect", () => {
       if (disposed) return;
       setConnection("joining");
@@ -112,13 +129,28 @@ export function App() {
           }
           return;
         }
+        if (ack.data.playerId !== playerId) {
+          forgetIdentity("Your saved identity does not match the server. Register again.");
+          return;
+        }
         setConnection("joined");
+        const { activeMatchId } = ack.data;
+        if (activeMatchId) {
+          socket.emit(EVENTS.GAME_SUBSCRIBE, { matchId: activeMatchId }, (result) => {
+            if (disposed) return;
+            if (result.ok) receiveSnapshot(result.data);
+            else setMatchError(result.error.message);
+          });
+        } else {
+          setGameSnapshot(null);
+          setMatchError(null);
+        }
         refresh(); // Catch up after being offline, even if events were missed.
       });
     });
     socket.on("disconnect", () => { if (!disposed) setConnection("disconnected"); });
     socket.on("connect_error", () => { if (!disposed) setConnection("disconnected"); });
-    // WebSocket messages carry only a revision notice; HTTP fetches the roster.
+    // Lobby revision notices trigger an HTTP roster refresh.
     socket.on(EVENTS.LOBBY_CHANGED, () => { if (!disposed) refresh(); });
     socket.on(EVENTS.LOBBY_KICKED, () => {
       forgetIdentity("The administrator removed you from the lobby.");
@@ -173,11 +205,22 @@ export function App() {
     }
   }
 
+  async function onStartMatch() {
+    if (!identity || starting) return;
+    setStarting(true);
+    setMatchError(null);
+    try {
+      await startSampleMatch(identity.token);
+    } catch (cause) {
+      setMatchError(`Cannot start match: ${messageFor(cause)}`);
+    } finally {
+      setStarting(false);
+    }
+  }
 
   return (
     <main className="page">
       <h1>Skyjo (prototype)</h1>
-      <p> no cards for now </p>
 
       <section>
         <h2>Lobby</h2>
@@ -196,7 +239,7 @@ export function App() {
             <button type="button" onClick={() => refreshRef.current()} disabled={refreshing}>
               {refreshing ? "Refreshing…" : "Refresh players"}
             </button>
-            <p className="hint">Player lists update automatically while connected, this button is useless</p>
+            <p className="hint">Playerfgsdfsdasdfa lists update automatically while connected, this button is useless</p>
             {snapshot ? (
               <>
                 <p>{snapshot.players.length} registered player(s) · Revision {snapshot.revision}</p>
@@ -214,12 +257,19 @@ export function App() {
                     </li>
                   ))}
                 </ol>
+                {snapshot.you.isAdmin && !gameSnapshot && (
+                  <button type="button" onClick={onStartMatch}
+                    disabled={starting || connection !== "joined" || snapshot.players.length < 2}>
+                    {starting ? "Starting…" : "Start sample match"}
+                  </button>
+                )}
               </>
             ) : <p role="status">Loading lobby… (what's happening here ?)</p>}
           </>
         )}
-        {error && <p role="alert" className="error">{error}</p>}
+        {(error || matchError) && <p role="alert" className="error">{error ?? matchError}</p>}
       </section>
+      {identity && gameSnapshot && <MatchView snapshot={gameSnapshot} />}
     </main>
   );
 }

@@ -1,6 +1,6 @@
-now with registration (no account no password but the groundwork is here) and ORM 
+now with (simple) registration, contracts and mockeup match 
 
-next : final contracts, then actual server-side game loop and lobby
+next : actual server-side game loop and lobby
 
 ## First-time setup
 
@@ -12,7 +12,7 @@ docker compose up --build -d
 Open http://localhost:8080. `docker compose down` to shut down the app.
 
 
-### Host-side dev
+### Host-side dev (vite)
 
 Same thing with `POSTGRES_PASSWORD`, except the password placeholder must also be replaced in `DATABASE_URL`. 
 ```

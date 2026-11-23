@@ -1,4 +1,4 @@
-import type { SkyjoDrawnCard, SkyjoPhase, SkyjoSeat } from "@ft/contracts";
+import type { SkyjoDrawnCard, SkyjoPhase, SkyjoSeat, SkyjoSnapshot, StartMatchResult } from "@ft/contracts";
 
 export type StartMatchInput = {
   roomId: string;
@@ -6,7 +6,17 @@ export type StartMatchInput = {
   seats: readonly SkyjoSeat[];
 };
 
-export type StartMatch = (input: StartMatchInput) => Promise<{ matchId: string }>;
+export type StartMatch = (input: StartMatchInput) => Promise<StartMatchResult>;
+
+export type ActiveMatch = {
+  matchId: string;
+  snapshotFor(playerId: string): SkyjoSnapshot;
+};
+
+export type MatchService = {
+  startMatch: StartMatch;
+  readonly activeMatch: ActiveMatch | null;
+};
 
 type SkyjoPrivateSeat = SkyjoSeat & {
   // Row-major slots. Null marks a removed card.
