@@ -3,9 +3,8 @@ import { z } from "zod";
 // This prototype has exactly one persisted lobby; both applications use its ID.
 export const LOBBY_ROOM_ID = "demo" as const;
 
-// Validate untrusted browser input at the API boundary (2-20 visible characters).
-export const usernameSchema = z.string().trim().min(2).max(20)
-  .regex(/^[\p{L}\p{N}_ -]+$/u, "Use letters, numbers, spaces, hyphens or underscores");
+// Validate untrusted browser input at the API boundary (2-30 visible characters).
+export const usernameSchema = z.string().trim().min(2).max(30)
 export const registerLobbySchema = z.object({ username: usernameSchema }).strict();
 // Validate moderation targets and socket-join payloads before trusting them.
 export const playerIdSchema = z.string().uuid();

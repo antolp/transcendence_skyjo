@@ -39,6 +39,7 @@ function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong";
 }
 
+//main function for React, describes the Skyjo page
 export function App() {
   const [identity, setIdentity] = useState<GuestIdentity | null>(loadIdentity);
   const [username, setUsername] = useState("");
@@ -89,6 +90,7 @@ export function App() {
           forgetIdentity("Your saved identity does not match the server. Register again.");
           return;
         }
+		//tells React to update what browser display on new snapshot
         setSnapshot(state);
         setError(null);
       }).catch((cause: unknown) => {

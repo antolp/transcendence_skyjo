@@ -32,8 +32,10 @@ try {
   process.exit(1);
 }
 
+//TS infers the type of lobby and matches automatically
 const lobby = createLobbyService(prisma);
 const matches = createSampleMatchService((match) => notifyMatchStarted(io, match));
+
 // Express handles HTTP API requests. socket.io attaches to the SAME HTTP server (see realtime.ts)
 // The callbacks don't fire until a request finishes its database transaction.
 const httpServer = createServer(createApp(lobby, {

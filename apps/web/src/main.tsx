@@ -8,6 +8,7 @@ const element = document.getElementById("root");
 if (!element) throw new Error("Missing React mount element #root");
 
 //create the React root
+//meaning "React show the screen described by App here."
 createRoot(element).render(
   <StrictMode>
     <App />
