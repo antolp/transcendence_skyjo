@@ -35,6 +35,8 @@ export const skyjoSnapshotSample = {
     ],
     drawPileCount: 119,
     discardTop: 7,
+    finisherId: null,
+    history: [],
   },
   you: { playerId: alexId, drawnCard: { source: "deck", value: 2 } },
 } as const satisfies SkyjoSnapshot;

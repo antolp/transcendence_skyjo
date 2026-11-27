@@ -2,10 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { io, type Socket } from "socket.io-client";
 import {
   EVENTS, usernameSchema,
-  type ClientToServerEvents, type ServerToClientEvents, type LobbySnapshot, type SkyjoSnapshot,
+  type ClientToServerEvents, type ServerToClientEvents, type LobbySnapshot, type SkyjoSnapshot, type SkyjoCommand,
 } from "@ft/contracts";
 import { MatchView } from "./game/MatchView";
-import { fetchLobbyState, kickPlayer, LobbyApiError, register, startSampleMatch } from "./lobby/api";
+import { fetchLobbyState, kickPlayer, LobbyApiError, register, startMatch } from "./lobby/api";
 
 //Browser storage holds the raw token, while PostgreSQL stores only its hash
 //Tabs in the same browser profile therefore represent the same guest
@@ -53,11 +53,16 @@ export function App() {
   const [kicking, setKicking] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>("disconnected");
   // The current socket effect owns refresh; button handlers call it through this ref.
+  const socketRef = useRef<LobbySocket | null>(null);
+  const [commandBusy, setCommandBusy] = useState(false);
+  const commandPending = useRef(false);
   const refreshRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     setGameSnapshot(null);
     setMatchError(null);
+    commandPending.current = false;
+    setCommandBusy(false);
     if (!identity) {
       setSnapshot(null);
       setConnection("disconnected");
@@ -108,6 +113,7 @@ export function App() {
 
     // The transport reconnects automatically, Every new connection must join the authenticated lobby again
     const socket: LobbySocket = io({ path: "/socket.io", autoConnect: false });
+    socketRef.current = socket;
     function receiveSnapshot(next: SkyjoSnapshot) {
       if (disposed) return;
       setGameSnapshot((previous) =>
@@ -164,6 +170,7 @@ export function App() {
       disposed = true;
       requestNumber++;
       refreshRef.current = () => {};
+      socketRef.current = null;
       socket.removeAllListeners();
       socket.disconnect();
     };
@@ -207,12 +214,31 @@ export function App() {
     }
   }
 
+  function onCommand(command: SkyjoCommand) {
+    const socket = socketRef.current;
+    if (!socket?.connected || connection !== "joined" || !gameSnapshot || commandPending.current) return;
+    commandPending.current = true;
+    setCommandBusy(true);
+    setMatchError(null);
+    socket.timeout(5000).emit(EVENTS.GAME_COMMAND, {
+      matchId: gameSnapshot.matchId, expectedRevision: gameSnapshot.revision, command,
+    }, (err, ack) => {
+      if (socketRef.current !== socket) return;
+      commandPending.current = false;
+      setCommandBusy(false);
+      if (err) {
+        setMatchError("Command acknowledgement timed out. Resynchronizing…");
+        socket.disconnect().connect();
+      } else if (!ack.ok) setMatchError(ack.error.message);
+    });
+  }
+
   async function onStartMatch() {
     if (!identity || starting) return;
     setStarting(true);
     setMatchError(null);
     try {
-      await startSampleMatch(identity.token);
+      await startMatch(identity.token);
     } catch (cause) {
       setMatchError(`Cannot start match: ${messageFor(cause)}`);
     } finally {
@@ -222,7 +248,7 @@ export function App() {
 
   return (
     <main className="page">
-      <h1>Skyjo (prototype)</h1>
+      <h1>Skyjo</h1>
 
       <section>
         <h2>Lobby</h2>
@@ -241,7 +267,6 @@ export function App() {
             <button type="button" onClick={() => refreshRef.current()} disabled={refreshing}>
               {refreshing ? "Refreshing…" : "Refresh players"}
             </button>
-            <p className="hint">Playerfgsdfsdasdfa lists update automatically while connected, this button is useless</p>
             {snapshot ? (
               <>
                 <p>{snapshot.players.length} registered player(s) · Revision {snapshot.revision}</p>
@@ -251,7 +276,7 @@ export function App() {
                       <span>{player.username}{player.isAdmin ? " (admin)" : ""}
                         {player.id === identity.playerId ? " (you)" : ""}</span>
                       {snapshot.you.isAdmin && player.id !== identity.playerId && (
-                        <button type="button" disabled={kicking !== null}
+                        <button type="button" disabled={kicking !== null || (!!gameSnapshot && gameSnapshot.public.phase.kind !== "match-end" && gameSnapshot.public.seats.some(seat => seat.playerId === player.id))}
                           onClick={() => { void onKick(player.id); }}>
                           {kicking === player.id ? "Kicking…" : "Kick"}
                         </button>
@@ -259,19 +284,19 @@ export function App() {
                     </li>
                   ))}
                 </ol>
-                {snapshot.you.isAdmin && !gameSnapshot && (
+                {snapshot.you.isAdmin && (!gameSnapshot || gameSnapshot.public.phase.kind === "match-end") && (
                   <button type="button" onClick={onStartMatch}
-                    disabled={starting || connection !== "joined" || snapshot.players.length < 2}>
-                    {starting ? "Starting…" : "Start sample match"}
+                    disabled={starting || connection !== "joined" || snapshot.players.length < 2 || snapshot.players.length > 8}>
+                    {starting ? "Starting…" : "Start match (2–8 guests)"}
                   </button>
                 )}
               </>
-            ) : <p role="status">Loading lobby… (what's happening here ?)</p>}
+            ) : <p role="status">Loading lobby…</p>}
           </>
         )}
         {(error || matchError) && <p role="alert" className="error">{error ?? matchError}</p>}
       </section>
-      {identity && gameSnapshot && <MatchView snapshot={gameSnapshot} />}
+      {identity && gameSnapshot && <MatchView snapshot={gameSnapshot} onCommand={onCommand} disabled={commandBusy || connection !== "joined"} />}
     </main>
   );
 }

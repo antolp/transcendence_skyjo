@@ -1,4 +1,4 @@
-import type { SkyjoDrawnCard, SkyjoPhase, SkyjoSeat, SkyjoSnapshot, StartMatchResult } from "@ft/contracts";
+import type { SkyjoCommand, SkyjoRoundResult, SkyjoDrawnCard, SkyjoPhase, SkyjoSeat, SkyjoSnapshot, StartMatchResult } from "@ft/contracts";
 
 export type StartMatchInput = {
   roomId: string;
@@ -11,6 +11,7 @@ export type StartMatch = (input: StartMatchInput) => Promise<StartMatchResult>;
 export type ActiveMatch = {
   matchId: string;
   snapshotFor(playerId: string): SkyjoSnapshot;
+  command(playerId: string, expectedRevision: number, command: SkyjoCommand): number;
 };
 
 export type MatchService = {
@@ -34,5 +35,7 @@ export type SkyjoPrivateState = {
   seats: SkyjoPrivateSeat[];
   drawPile: number[];
   discardPile: number[];
+  finisherId: string | null;
+  history: SkyjoRoundResult[];
   pendingDraw: (SkyjoDrawnCard & { playerId: string }) | null;
 };

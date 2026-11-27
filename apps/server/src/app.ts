@@ -1,7 +1,7 @@
 import express, { type ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
 import { registerLobbySchema, kickPlayerSchema, type ApiError, type HealthResponse } from "@ft/contracts";
-import type { StartMatch } from "./game/types.js";
+import type { MatchService } from "./game/types.js";
 import { LobbyError } from "./lobby/errors.js";
 import type { LobbyService } from "./lobby/service.js";
 
@@ -25,10 +25,19 @@ function bearerToken(header: string | undefined): string {
 }
 
 // Express only validates HTTP input and output.
-export function createApp(lobby: LobbyService, notify: LobbyNotifications, startMatch: StartMatch) {
+export function createApp(lobby: LobbyService, notify: LobbyNotifications, matches: MatchService) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "16kb" }));
+
+  // Start and kick must not interleave across database awaits: a kick could
+  // otherwise remove a guest from a newly frozen match roster.
+  let rosterOperation: Promise<unknown> = Promise.resolve();
+  function serializeRoster<T>(work: () => Promise<T>): Promise<T> {
+    const result = rosterOperation.then(work);
+    rosterOperation = result.catch(() => {});
+    return result;
+  }
 
   function changed(revision: number): void {
     try { notify.changed(revision); }
@@ -52,24 +61,32 @@ export function createApp(lobby: LobbyService, notify: LobbyNotifications, start
     response.set("Cache-Control", "no-store").json(snapshot);
   });
 
-  app.post("/api/lobby/start", async (request, response) => {
+  app.post("/api/lobby/start", (request, response) => serializeRoster(async () => {
     const state = await lobby.getState(bearerToken(request.header("Authorization")));
     if (!state.you.isAdmin) throw new LobbyError("FORBIDDEN", "Only the admin can start the match.", 403);
-    const seats = state.players.slice(0, 2).map(({ id, username }) => ({ playerId: id, username }));
-    const result = await startMatch({ roomId: state.roomId, seats });
+    const seats = state.players.map(({ id, username }) => ({ playerId: id, username }));
+    const result = await matches.startMatch({ roomId: state.roomId, seats });
     response.set("Cache-Control", "no-store").json(result);
-  });
+  }));
 
-  app.post("/api/lobby/kick", async (request, response) => {
+  app.post("/api/lobby/kick", (request, response) => serializeRoster(async () => {
     const token = bearerToken(request.header("Authorization"));
     const { playerId } = kickPlayerSchema.parse(request.body);
+    const caller = await lobby.getState(token);
+    if (!caller.you.isAdmin) throw new LobbyError("FORBIDDEN", "Only the admin can kick players.", 403);
+    if (matches.activeMatch) {
+      const match = matches.activeMatch.snapshotFor("");
+      if (match.public.phase.kind !== "match-end" && match.public.seats.some(seat => seat.playerId === playerId)) {
+        throw new LobbyError("MATCH_IN_PROGRESS", "Cannot kick a seated player during a match.", 409);
+      }
+    }
     const result = await lobby.kick(token, playerId);
     response.set("Cache-Control", "no-store").json(result);
 
     try { notify.kicked(result.playerId); }
     catch (error) { console.error("Kick notification failed", error); }
     changed(result.revision);
-  });
+  }));
 
   app.use((_request, response) => {
     response.status(404).json(apiError("NOT_FOUND", "Route not found"));

@@ -31,3 +31,15 @@ button:disabled { cursor: not-allowed; }
 @media (max-width: 720px) {
   .page { margin: 8px; }
 }
+.page { max-width: 760px; }
+.board { display: grid; grid-template-columns: repeat(4, minmax(0, 70px)); gap: 5px; }
+.card { min-height: 45px; font-weight: bold; }
+.card.hidden { background: #bbb; }
+.card.revealed { background: #e3f1da; color: #222; }
+.card.removed { background: transparent; border: 1px dashed #bbb; }
+.card:disabled { opacity: .8; }
+.card:not(:disabled) { outline: 2px solid #285b93; }
+.board-section { margin-bottom: 16px; }
+.piles { margin: 12px 0; }
+table { border-collapse: collapse; max-width: 100%; }
+th, td { border: 1px solid #bbb; padding: 4px; }

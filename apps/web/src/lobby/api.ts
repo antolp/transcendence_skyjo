@@ -37,7 +37,7 @@ export async function fetchLobbyState(token: string): Promise<LobbySnapshot> {
   return asJson<LobbySnapshot>(response);
 }
 
-export async function startSampleMatch(token: string): Promise<StartMatchResult> {
+export async function startMatch(token: string): Promise<StartMatchResult> {
   const response = await fetch("/api/lobby/start", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },

@@ -25,12 +25,20 @@ export type SkyjoPublicSeat = SkyjoSeat & {
   totalScore: number;
 };
 
+export type SkyjoRoundResult = {
+  roundNumber: number;
+  finisherId: string;
+  scores: readonly { playerId: string; raw: number; awarded: number }[];
+};
+
 export type SkyjoPublicState = {
   roundNumber: number;
   phase: SkyjoPhase;
   seats: readonly SkyjoPublicSeat[];
   drawPileCount: number;
   discardTop: number | null;
+  finisherId: string | null;
+  history: readonly SkyjoRoundResult[];
 };
 
 const drawSourceSchema = z.enum(["deck", "discard"]);
@@ -65,6 +73,7 @@ const skyjoCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("draw"), source: drawSourceSchema }).strict(),
   z.object({ type: z.literal("swap"), slotIndex: slotIndexSchema }).strict(),
   z.object({ type: z.literal("discard") }).strict(),
+  z.object({ type: z.literal("next-round") }).strict(),
 ]);
 export type SkyjoCommand = z.infer<typeof skyjoCommandSchema>;
 

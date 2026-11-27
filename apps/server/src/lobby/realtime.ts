@@ -2,7 +2,7 @@ import type { Server as HttpServer } from "node:http";
 import { Server } from "socket.io";
 import { ZodError } from "zod";
 import {
-  EVENTS, gameSubscribeSchema, joinLobbySchema,
+  EVENTS, gameCommandSchema, gameSubscribeSchema, joinLobbySchema,
   type ClientToServerEvents, type ServerToClientEvents,
   type InterServerEvents, type SocketData,
 } from "@ft/contracts";
@@ -89,6 +89,30 @@ export function createLobbySocketServer(
     }
     // Register named function as the event handler
     socket.on(EVENTS.LOBBY_JOIN, handleLobbyJoin);
+    socket.on(EVENTS.GAME_COMMAND, (input, acknowledge) => {
+      if (typeof acknowledge !== "function") return;
+      const playerId = socket.data.lobbyPlayerId;
+      if (!playerId || !socket.rooms.has(LOBBY_SOCKET_ROOM)) {
+        return acknowledge({ ok: false, error: { code: "UNAUTHORIZED", message: "Join the lobby first." } });
+      }
+      const request = gameCommandSchema.safeParse(input);
+      if (!request.success) return acknowledge({ ok: false, error: { code: "INVALID_INPUT", message: "Invalid command." } });
+      const match = matches.activeMatch;
+      if (!match || match.matchId !== request.data.matchId) return acknowledge({ ok: false, error: { code: "MATCH_NOT_FOUND", message: "Match unavailable." } });
+      try {
+        const revision = match.command(playerId, request.data.expectedRevision, request.data.command);
+        broadcastMatchSnapshot(io, match);
+        acknowledge({ ok: true, data: { revision } });
+      } catch (error) {
+        if (error instanceof LobbyError) {
+          socket.emit(EVENTS.GAME_SNAPSHOT, match.snapshotFor(playerId));
+          acknowledge({ ok: false, error: { code: error.code, message: error.message } });
+        } else {
+          console.error("Game command failed", error);
+          acknowledge({ ok: false, error: { code: "INTERNAL_ERROR", message: "Game command failed." } });
+        }
+      }
+    });
     socket.on(EVENTS.GAME_SUBSCRIBE, (input, acknowledge) => {
       if (typeof acknowledge !== "function") return;
       const playerId = socket.data.lobbyPlayerId;
@@ -110,7 +134,7 @@ export function createLobbySocketServer(
   return io;
 }
 
-export function notifyMatchStarted(io: LobbyIo, match: ActiveMatch): void {
+export function broadcastMatchSnapshot(io: LobbyIo, match: ActiveMatch): void {
   for (const socket of io.sockets.sockets.values()) {
     const playerId = socket.data.lobbyPlayerId;
     if (playerId && socket.rooms.has(LOBBY_SOCKET_ROOM)) {
